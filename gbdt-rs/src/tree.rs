@@ -5,6 +5,11 @@
 //
 
 use data::*;
+use num::pow;
+
+lazy_static! {
+    static ref TRIVALSPLITVALUE: f64 = -999999;
+}
 
 #[derive(Copy, Clone, Debug)]
 struct TreeStatsNode {
@@ -123,9 +128,9 @@ impl TreeMethod for Tree {
             self.nodes[i].l_inf = 0;
             self.nodes[i].gain = 0;
             for j in 0..self.fea_num {
-                self.nodes[i].stats[j].s = 0;
+                self.nodes[i].stats[j].s = TRIVALSPLITVALUE;
                 self.nodes[i].stats[j].min_delta_loss = 99999999.0;
-                self.nodes[i].stats[j].fea_value = 0;
+                self.nodes[i].stats[j].fea_value = TRIVALSPLITVALUE;
                 self.nodes[i].stats[j].m_s = 0;
                 self.nodes[i].stats[j].l_s = 0;
             }
@@ -192,7 +197,72 @@ impl TreeMethod for Tree {
             if tree_node_idx < idx_start || tree_node_idx > idx_end {
                 continue;
             }
+            let ref tnode = self.nodes[tree_node_idx];
+            if tnode.fea_id < 0 {
+                continue;
+            }
+            let next_idx: i32;
+            if data.raw_data[i].values[tnode.fea_id] < tnode.split_value {
+                next_idx = tnode.left_child_idx;
+            } else {
+                next_idx = tnode.right_child_index;
+            }
+            self.nodes[next_idx as usize].m_inf += 1;
+            self.nodes[next_idx as usize].l_inf += self.g[i];
+            self.node_idx[i] = next_idx;
         }
+        for i in idx_start..idx_end {
+            let ref tnode = self.nodes[i as usize];
+            if tnode.fea_id < 0 {
+                continue
+            }
+            let mut ref left_child_node = self.nodes[tnode.left_child_index];
+            let mut ref right_child_node = self.nodes[tnode.right_child_index];
+            left_child_node.label = 0;
+            if left_child_node.m_inf > 0 {
+                left_child_node.label = left_child_node.l_inf / left_child_node.m_inf;
+            }
+            right_child_node.label = 0;
+            if right_child_node.m_inf > 0 {
+                right_child_node.label = right_child_node.l_inf / right_child_node.m_inf;
+            }
+            tnode.gain = left_child_node.m_inf * right_child_node.m_inf / tnode.m_inf;
+            tnode.gain *= pow(left_child_node.label - right_child_node.label);
+            self.fea_significance[tnode.feature_id] += tnode.gain;
+        }
+        return true
     }
 
+    fn FindBestSplitValueOneFeature(&mut self, data: &Data, currentDepth: &i32, feaId: &i32) {
+        let idx_start: usize = ((currentDepth - 1) << 1) - 1;
+        let idx_end: usize = ((currentDepth) << 1) - 2;
+        let ref sorted_fea_vec = data.sorted_data[feaId];
+
+        let mut tree_node_idx = -1;
+        for i in 0..self.doc_num {
+            let ref snode = sorted_fea_vec[i];
+            tree_node_idx = self.node_idx[snode.doc_id];
+            if tree_node_idx < idx_start || tree_node_idx > idx_end {
+                continue;
+            }
+            let mut ref tnode = self.nodes[tree_node_idx];
+            let mut ref stats_node = tnode.stats[feaId];
+            if stats_node.fea_value != snode.value {
+                if TRIVALSPLITVALUE == stats_node.fea_value {
+                    stats_node.s = snode.value;
+                    stats_node.min_delta_loss = - pow(tnodel_inf, 2) / tnode.m_inf;
+                } else {
+                    let v = -pow(stats_node.l_s, 2) / stats_node.m_s - pow(tnode.l_inf - stats_node.l_s, 2) / (t_node.m_inf - stats_node.m_s);
+                    if v < stats_node.min_delta_loss {
+                        stats_node.s = (stats_node.fea_value ++ snode.value) / 2.0;
+                        stats_node.min_delta_loss = v;
+                    }
+                }
+                stats_node.fea_value = snode.value;
+            }
+            stats_node.m_s += 1;
+            stats_node.l_s += g_[snode.doc_id];
+        }
+    }
 }
+
